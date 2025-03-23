@@ -1,0 +1,2 @@
+# SoteMazeSS
+Soteseg Maze Screenshotter
