@@ -1,8 +1,8 @@
 import ctypes
 from ctypes import wintypes
-from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QMainWindow, QWidget, QHBoxLayout, QPushButton
-from PyQt6.QtGui import QPixmap, QImage, QPalette, QColor, QIcon
-from PyQt6.QtCore import Qt, QPoint, QTimer
+from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QMainWindow, QWidget, QPushButton
+from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtCore import Qt, QTimer
 import sys
 import pyautogui
 import win32gui
@@ -10,15 +10,20 @@ from pynput import mouse, keyboard
 import io
 import json
 
+# Set DPI awareness to handle high-DPI displays properly
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor DPI awareness
+except Exception as e:
+    print(f"Failed to set DPI awareness: {e}")
+
 # Constants for Windows API
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 
 def enable_dark_mode(hwnd):
-    # Enable dark mode for the application window using Windows API.
+    # Enable dark mode for the application window using Windows API
     try:
-        # Load the DWM API
         dwmapi = ctypes.windll.dwmapi
-        value = ctypes.c_int(1)  # Enable dark mode
+        value = ctypes.c_int(1)
         dwmapi.DwmSetWindowAttribute(
             wintypes.HWND(hwnd),
             ctypes.c_int(DWMWA_USE_IMMERSIVE_DARK_MODE),
@@ -36,6 +41,7 @@ class ScreenshotApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("Soteseg Maze Screenshotter")
         self.setGeometry(100, 100, 800, 600)
+        self.setMinimumSize(800, 600)  # Set a minimum size for the window
 
         # Load configuration
         self.screenshot_button = self.load_config()
@@ -43,15 +49,15 @@ class ScreenshotApp(QMainWindow):
         # Apply a dark mode theme to the application
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #121212;  /* Dark grayish black background */
-                color: white;  /* White text */
+                background-color: #121212;
+                color: white;
             }
             QLabel {
-                color: white;  /* White text for labels */
+                color: white;
             }
             QPushButton {
-                background-color: #1e1e1e;  /* Dark button background */
-                color: white;  /* White text */
+                background-color: #1e1e1e;
+                color: white;
                 border: 1px solid #333333;
                 padding: 5px;
             }
@@ -61,7 +67,7 @@ class ScreenshotApp(QMainWindow):
         self.layout = QVBoxLayout()
 
         # Instruction label
-        self.image_label = QLabel("Press 'Mouse4' to take a screenshot.")
+        self.image_label = QLabel("Press 'Mouse5' to take a screenshot.")
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout.addWidget(self.image_label)
 
@@ -86,16 +92,16 @@ class ScreenshotApp(QMainWindow):
         self.keyboard_listener.start()
 
     def load_config(self):
-        # Load the configuration from a file.
+        # Load the configuration from a file
         try:
             with open(self.CONFIG_FILE, "r") as file:
                 config = json.load(file)
                 return config.get("screenshot_button", "(256, 128, 1)")
         except (FileNotFoundError, json.JSONDecodeError):
-            return "(256, 128, 1)"  # Default button
+            return "(256, 128, 1)"
 
     def save_config(self):
-        # Save the configuration to a file.
+        # Save the configuration to a file
         with open(self.CONFIG_FILE, "w") as file:
             json.dump({"screenshot_button": self.screenshot_button}, file)
 
@@ -161,7 +167,7 @@ class ScreenshotApp(QMainWindow):
     def on_mouse_click(self, x, y, button, pressed):
         # Handle mouse clicks for taking screenshots.
         if pressed and (str(getattr(button, "value", None)) == self.screenshot_button or str(button) == self.screenshot_button):
-            self.take_screenshot()
+            QTimer.singleShot(0, self.take_screenshot)  # Call the screenshot method in the main thread
 
     def on_key_press(self, key):
         # Handle keyboard presses for taking screenshots.
@@ -179,34 +185,47 @@ class ScreenshotApp(QMainWindow):
             print(f"Error handling key press: {e}")
 
     def take_screenshot(self):
-        hwnd = win32gui.GetForegroundWindow()  # Get the active window
-        client_rect = win32gui.GetClientRect(hwnd)  # Get the client area
-        client_offset = win32gui.ClientToScreen(hwnd, (0, 0))  # Get the client area's top-left corner relative to the screen
+        # Get the active window handle
+        hwnd = win32gui.GetForegroundWindow()
+        
+        # Check if the window handle is valid
+        if not hwnd:
+            print("No active window detected. Cannot take a screenshot.")
+            return
 
-        client_x, client_y = client_offset
-        client_width, client_height = client_rect[2], client_rect[3]  # Extract client area width/height
+        try:
+            # Get the client area of the active window
+            client_rect = win32gui.GetClientRect(hwnd)
+            client_offset = win32gui.ClientToScreen(hwnd, (0, 0))  # Pass (0, 0) as the client coordinates
 
-        # Adjust the screenshot region to capture only the client area
-        screenshot = pyautogui.screenshot(region=(client_x, client_y, client_width, client_height))
+            client_x, client_y = client_offset
+            client_width, client_height = client_rect[2], client_rect[3]
 
-        buffer = io.BytesIO()
-        screenshot.save(buffer, format="PNG")
-        buffer.seek(0)
+            # Take a screenshot of the client area
+            screenshot = pyautogui.screenshot(region=(client_x, client_y, client_width, client_height))
 
-        image = QImage()
-        image.loadFromData(buffer.getvalue())
-        pixmap = QPixmap.fromImage(image)
+            # Load the screenshot into a QPixmap
+            buffer = io.BytesIO()
+            screenshot.save(buffer, format="PNG")
+            buffer.seek(0)
 
-        # Resize the window to fit the screenshot size (unless the window is already larger)
-        self.resize(max(pixmap.width(), 800), max(pixmap.height(), 600))
+            image = QImage()
+            image.loadFromData(buffer.getvalue())
+            pixmap = QPixmap.fromImage(image)
 
-        # Maintain aspect ratio and center the image
-        self.image_label.setPixmap(pixmap.scaled(
-            self.image_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
-        ))
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # Resize the window to fit the screenshot size
+            self.resize(max(pixmap.width(), 800), max(pixmap.height(), 600))
+
+            # Maintain aspect ratio and center the image
+            self.image_label.setPixmap(pixmap.scaled(
+                self.image_label.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            ))
+            self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        except Exception as e:
+            print(f"Error taking screenshot: {e}")
 
     def closeEvent(self, event):
         # Stop listeners when the application is closed.
